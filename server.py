@@ -503,7 +503,7 @@ def make_admin(uid):
 
 # ─── INIT DB & SEED ───────────────────────────────────────────────────────────
 
-@app.route('/api/init', methods=['POST'])
+@app.route('/api/init', methods=['GET', 'POST'])
 def init_db():
     db.create_all()
 
