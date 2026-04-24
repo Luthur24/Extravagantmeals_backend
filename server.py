@@ -26,9 +26,6 @@ cloudinary.config(
     api_secret='pUcb90_1jtv-rDlHXRRsfDcBK5k'
 )
 
-PAYSTACK_SECRET = os.environ.get('PAYSTACK_SECRET', 'sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
-PAYSTACK_PUBLIC = os.environ.get('PAYSTACK_PUBLIC', 'pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
-
 db = SQLAlchemy(app)
 
 # ─── MODELS ───────────────────────────────────────────────────────────────────
@@ -73,7 +70,7 @@ class Order(db.Model):
     guest_email = db.Column(db.String(150))
     total_amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(50), default='pending')  # pending, paid, preparing, delivered, cancelled
-    paystack_ref = db.Column(db.String(200))
+    payment_ref = db.Column(db.String(200))
     # Delivery info
     delivery_address = db.Column(db.Text)
     delivery_city = db.Column(db.String(100))
@@ -160,7 +157,7 @@ def order_to_dict(order):
         'guest_email': order.guest_email,
         'total_amount': order.total_amount,
         'status': order.status,
-        'paystack_ref': order.paystack_ref,
+        'payment_ref': order.payment_ref,
         'delivery_address': order.delivery_address,
         'delivery_city': order.delivery_city,
         'delivery_state': order.delivery_state,
@@ -228,6 +225,8 @@ def get_categories():
 def create_category():
     d = request.get_json()
     name = d.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Category name required'}), 400
     slug = name.lower().replace(' ', '-')
     if Category.query.filter_by(slug=slug).first():
         return jsonify({'error': 'Category already exists'}), 409
@@ -240,6 +239,9 @@ def create_category():
 @admin_required
 def delete_category(cid):
     cat = Category.query.get_or_404(cid)
+    # Unlink meals from this category before deleting
+    for meal in cat.meals:
+        meal.category_id = None
     db.session.delete(cat)
     db.session.commit()
     return jsonify({'message': 'Deleted'})
@@ -411,29 +413,7 @@ def create_order():
         oi.order_id = order.id
         db.session.add(oi)
     db.session.commit()
-    return jsonify({'order_id': order.id, 'total': total, 'paystack_public_key': PAYSTACK_PUBLIC}), 201
-
-@app.route('/api/orders/verify', methods=['POST'])
-def verify_payment():
-    import requests as req
-    d = request.get_json()
-    reference = d.get('reference')
-    order_id = d.get('order_id')
-
-    order = Order.query.get_or_404(order_id)
-
-    # Verify with Paystack
-    headers = {'Authorization': f'Bearer {PAYSTACK_SECRET}'}
-    resp = req.get(f'https://api.paystack.co/transaction/verify/{reference}', headers=headers)
-    result = resp.json()
-
-    if result.get('data', {}).get('status') == 'success':
-        order.status = 'paid'
-        order.paystack_ref = reference
-        db.session.commit()
-        return jsonify({'message': 'Payment verified', 'order': order_to_dict(order)})
-    else:
-        return jsonify({'error': 'Payment verification failed'}), 400
+    return jsonify({'order_id': order.id, 'total': total}), 201
 
 @app.route('/api/orders/my', methods=['GET'])
 @token_required
@@ -495,7 +475,7 @@ def admin_get_users():
 
 @app.route('/api/admin/users/<int:uid>/make-admin', methods=['PUT'])
 @admin_required
-def make_admin(uid):
+def make_admin_user(uid):
     user = User.query.get_or_404(uid)
     user.is_admin = True
     db.session.commit()
@@ -513,8 +493,8 @@ def init_db():
         admin = User(name='Admin', email='admin@extravagantmeals.com', password_hash=hashed, is_admin=True)
         db.session.add(admin)
 
-    # Seed default categories
-    default_cats = ['Starters', 'Main Course', 'Grills', 'Soups', 'Desserts', 'Drinks']
+    # Seed default categories — no Grills or Desserts
+    default_cats = ['Starters', 'Main Course', 'Soups', 'Drinks']
     for cat_name in default_cats:
         slug = cat_name.lower().replace(' ', '-')
         if not Category.query.filter_by(slug=slug).first():
