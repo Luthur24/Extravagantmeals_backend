@@ -647,6 +647,22 @@ def init_db():
 def health():
     return jsonify({'status': 'Dera of Alaba Electronics API running'})
 
+# ─── AUTO-INIT ON STARTUP ─────────────────────────────────────────────────────
+# Creates all tables and seeds admin + default categories automatically.
+# Safe to run on every deploy — uses IF NOT EXISTS logic under the hood.
+with app.app_context():
+    db.create_all()
+    if not User.query.filter_by(email='admin@deraelectronics.com').first():
+        hashed = bcrypt.hashpw('admin123'.encode(), bcrypt.gensalt()).decode()
+        admin = User(name='Admin', email='admin@deraelectronics.com', password_hash=hashed, is_admin=True)
+        db.session.add(admin)
+    default_cats = ['Speakers', 'Washing Machines', 'Gas Cookers', 'Televisions', 'Refrigerators', 'Air Conditioners']
+    for cat_name in default_cats:
+        slug = cat_name.lower().replace(' ', '-')
+        if not Category.query.filter_by(slug=slug).first():
+            db.session.add(Category(name=cat_name, slug=slug))
+    db.session.commit()
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
