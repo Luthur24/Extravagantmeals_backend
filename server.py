@@ -13,10 +13,14 @@ app = Flask(__name__)
 CORS(app, origins="*")
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+_db_url = os.environ.get(
     'DATABASE_URL',
     'postgresql://extravagantmeals_user:V9EijyegMbl2Hcwn0Ajaj61ROYlXnOpH@dpg-d7ktnq8sfn5c73cqeto0-a.frankfurt-postgres.render.com/extravagantmeals'
 )
+# Render provides postgres:// but SQLAlchemy 1.4+ requires postgresql://
+if _db_url.startswith('postgres://'):
+    _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET'] = os.environ.get('JWT_SECRET', 'dera_electronics_secret_key_2024')
 
@@ -245,7 +249,9 @@ def create_category():
 @app.route('/api/admin/categories/<int:cid>', methods=['PUT'])
 @admin_required
 def update_category(cid):
-    cat = Category.query.get_or_404(cid)
+    cat = db.session.get(Category, cid)
+    if not cat:
+        return jsonify({'error': 'Category not found'}), 404
     d = request.get_json()
     name = d.get('name', '').strip()
     if not name:
@@ -262,7 +268,9 @@ def update_category(cid):
 @app.route('/api/admin/categories/<int:cid>', methods=['DELETE'])
 @admin_required
 def delete_category(cid):
-    cat = Category.query.get_or_404(cid)
+    cat = db.session.get(Category, cid)
+    if not cat:
+        return jsonify({'error': 'Category not found'}), 404
     for p in cat.products:
         p.category_id = None
     db.session.delete(cat)
@@ -290,7 +298,9 @@ def get_products():
 
 @app.route('/api/products/<int:pid>', methods=['GET'])
 def get_product(pid):
-    p = Product.query.get_or_404(pid)
+    p = db.session.get(Product, pid)
+    if not p:
+        return jsonify({'error': 'Product not found'}), 404
     return jsonify(product_to_dict(p))
 
 @app.route('/api/admin/products', methods=['GET'])
@@ -340,7 +350,9 @@ def create_product():
 @app.route('/api/admin/products/<int:pid>', methods=['PUT'])
 @admin_required
 def update_product(pid):
-    product = Product.query.get_or_404(pid)
+    product = db.session.get(Product, pid)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
     name = request.form.get('name')
     description = request.form.get('description')
     price = request.form.get('price')
@@ -380,7 +392,9 @@ def update_product(pid):
 @app.route('/api/admin/products/<int:pid>', methods=['DELETE'])
 @admin_required
 def delete_product(pid):
-    product = Product.query.get_or_404(pid)
+    product = db.session.get(Product, pid)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
     if product.cloudinary_image_id:
         try: cloudinary.uploader.destroy(product.cloudinary_image_id)
         except: pass
@@ -394,7 +408,9 @@ def delete_product(pid):
 @app.route('/api/admin/products/<int:pid>/toggle-featured', methods=['PUT'])
 @admin_required
 def toggle_featured(pid):
-    product = Product.query.get_or_404(pid)
+    product = db.session.get(Product, pid)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
     product.is_featured = not product.is_featured
     db.session.commit()
     return jsonify({'id': product.id, 'is_featured': product.is_featured})
@@ -402,7 +418,9 @@ def toggle_featured(pid):
 @app.route('/api/admin/products/<int:pid>/toggle-available', methods=['PUT'])
 @admin_required
 def toggle_available(pid):
-    product = Product.query.get_or_404(pid)
+    product = db.session.get(Product, pid)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
     product.is_available = not product.is_available
     db.session.commit()
     return jsonify({'id': product.id, 'is_available': product.is_available})
@@ -473,7 +491,9 @@ def my_orders():
 @app.route('/api/orders/<int:oid>', methods=['GET'])
 @token_required
 def get_order(oid):
-    order = Order.query.get_or_404(oid)
+    order = db.session.get(Order, oid)
+    if not order:
+        return jsonify({'error': 'Order not found'}), 404
     if order.user_id != request.user_id and not request.is_admin:
         return jsonify({'error': 'Forbidden'}), 403
     return jsonify(order_to_dict(order))
@@ -493,7 +513,9 @@ def admin_get_orders():
 @app.route('/api/admin/orders/<int:oid>/status', methods=['PUT'])
 @admin_required
 def update_order_status(oid):
-    order = Order.query.get_or_404(oid)
+    order = db.session.get(Order, oid)
+    if not order:
+        return jsonify({'error': 'Order not found'}), 404
     d = request.get_json()
     status = d.get('status')
     if status not in ['pending', 'paid', 'preparing', 'delivered', 'cancelled']:
@@ -507,7 +529,9 @@ def update_order_status(oid):
 @app.route('/api/admin/orders/<int:oid>', methods=['DELETE'])
 @admin_required
 def delete_order(oid):
-    order = Order.query.get_or_404(oid)
+    order = db.session.get(Order, oid)
+    if not order:
+        return jsonify({'error': 'Order not found'}), 404
     for item in order.items:
         db.session.delete(item)
     db.session.delete(order)
@@ -566,7 +590,9 @@ def admin_get_users():
 @app.route('/api/admin/users/<int:uid>/make-admin', methods=['PUT'])
 @admin_required
 def make_admin_user(uid):
-    user = User.query.get_or_404(uid)
+    user = db.session.get(User, uid)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     user.is_admin = True
     db.session.commit()
     return jsonify({'message': f'{user.name} is now an admin'})
@@ -574,7 +600,9 @@ def make_admin_user(uid):
 @app.route('/api/admin/users/<int:uid>/remove-admin', methods=['PUT'])
 @admin_required
 def remove_admin_user(uid):
-    user = User.query.get_or_404(uid)
+    user = db.session.get(User, uid)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     if user.email == 'admin@deraelectronics.com':
         return jsonify({'error': 'Cannot remove superadmin'}), 403
     user.is_admin = False
@@ -584,9 +612,13 @@ def remove_admin_user(uid):
 @app.route('/api/admin/users/<int:uid>', methods=['DELETE'])
 @admin_required
 def delete_user(uid):
-    user = User.query.get_or_404(uid)
+    user = db.session.get(User, uid)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     if user.email == 'admin@deraelectronics.com':
         return jsonify({'error': 'Cannot delete superadmin'}), 403
+    # Detach orders so FK constraint doesn't block deletion
+    Order.query.filter_by(user_id=uid).update({'user_id': None})
     db.session.delete(user)
     db.session.commit()
     return jsonify({'message': 'User deleted'})
@@ -616,4 +648,5 @@ def health():
     return jsonify({'status': 'Dera of Alaba Electronics API running'})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
